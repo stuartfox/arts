@@ -6580,6 +6580,315 @@ void PWR98H2OAbsModel(MatrixView pxsec,
 }
 //
 // #################################################################################
+//! Kosh11H2OAbsModel
+/*!
+   \param[out] pxsec        cross section (absorption/volume mixing ratio) of
+                            H2O (lines+continuum) according to Koshelev 2011 [1/m]
+   \param    CCin           scaling factor for the H2O-continuum  [1]
+   \param    CLin           scaling factor for the line strengths [1]
+   \param    CWin           scaling factor for the line widths    [1]
+   \param    model          allows user defined input parameter set
+                            (CCin, CLin, and CWin)<br> or choice of
+                            pre-defined parameters of specific models (see note below).
+   \param    f_grid         predefined frequency grid       [Hz]
+   \param    abs_p          predefined pressure grid       [Pa]
+   \param    abs_t          predefined temperature grid     [K]
+   \param    vmr            H2O volume mixing ratio        [1]
+
+   \note     Except for  model 'user' the input parameters CCin, CLin, and CWin
+             are neglected (model dominates over parameters).<br>
+             Allowed models: 'Koshelev', 'KoshelevLines', 'KoshelevContinuum',
+             and 'user'. See the user guide for detailed explanations.
+
+   \remark   Reference: M.A. Koshelev et al., JQSRT, 112, 2704, 2011.
+
+   \author Stuart Fox
+   \date 2017-03-21
+ */
+
+void Kosh11H2OAbsModel (MatrixView       pxsec,
+			const Numeric     CCin,       // continuum scale factor
+			const Numeric     CLin,       // line strength scale factor
+			const Numeric     CWin,       // line broadening scale factor
+			const String&     model,
+			ConstVectorView   f_grid,
+			ConstVectorView   abs_p,
+			ConstVectorView   abs_t,
+			ConstVectorView   vmr,
+			const Verbosity& verbosity)
+{
+  CREATE_OUT3;
+  
+  //   REFERENCES:
+  //   Based on Koshelev et al. JQSRT 112 PP.2704-2712 (2011)
+  //   Lines are taken from the Rosenkrantz 1998 model consistent
+  //   with the above reference
+
+   // --------- STANDARD MODEL PARAMETERS ---------------------------------------------------
+  // standard values for the Kosh11 model
+  const Numeric CC_Kosh11 = 1.00000;
+  const Numeric CL_Kosh11 = 1.00000;
+  const Numeric CW_Kosh11 = 1.00000;
+  // ---------------------------------------------------------------------------------------
+
+
+  // select the parameter set (!!model dominates values!!):
+  Numeric CC, CL, CW;
+  if ( model == "Koshelev" )
+    {
+      CC = CC_Kosh11;
+      CL = CL_Kosh11;
+      CW = CW_Kosh11;
+    }
+  else if ( model == "KoshelevLines" ) // Same as RosenkranzLines
+    {
+      CC = 0.000;
+      CL = CL_Kosh11;
+      CW = CW_Kosh11;
+    }
+  else if ( model == "KoshelevContinuum" )
+    {
+      CC = CC_Kosh11;
+      CL = 0.000;
+      CW = 0.000;
+    }
+  else if ( model == "user" )
+    {
+      CC = CCin;
+      CL = CLin;
+      CW = CWin;
+    }
+  else
+    {
+      ostringstream os;
+      os << "H2O-Kosh11: ERROR! Wrong model values given.\n"
+   << "Valid models are: 'Koshelev', 'KoshelevLines', 'KoshelevContinuum', and 'user'" << '\n';
+      throw runtime_error(os.str());
+    }
+  out3  << "H2O-Kosh11: (model=" << model << ") parameter values in use:\n"
+  << " CC = " << CC << "\n"
+  << " CL = " << CL << "\n"
+  << " CW = " << CW << "\n";
+
+  // Call Rosenkranz for line contribution
+  PWR98H2OAbsModel (pxsec,
+		    (Numeric) 0.0,       // continuum scale factor
+		    CL,       // line strength scale factor
+		    CW,       // line broadening scale factor
+		    (String) "user",
+		    f_grid,
+		    abs_p,
+		    abs_t,
+		    vmr,
+		    verbosity);
+
+  const Index n_p = abs_p.nelem();  // Number of pressure levels
+  const Index n_f = f_grid.nelem();  // Number of frequencies
+
+  // Check that dimensions of abs_p, abs_t, and vmr agree:
+  assert ( n_p==abs_t.nelem() );
+  assert ( n_p==vmr.nelem()   );
+
+  // Check that dimensions of pxsec are consistent with n_f
+  // and n_p. It should be [n_f,n_p]:
+  assert ( n_f==pxsec.nrows() );
+  assert ( n_p==pxsec.ncols() );
+
+  // Loop pressure/temperature:
+#pragma omp parallel for      \
+  if (!arts_omp_in_parallel()  \
+      && n_p >= arts_omp_get_max_threads())
+  for ( Index i=0; i<n_p; ++i )
+    {
+      // here the total pressure is not multiplied by the H2O vmr for the
+      // P_H2O calculation because we calculate pxsec and not abs: abs = vmr * pxsec
+      Numeric pvap_dummy = abs_p[i];
+      // water vapor partial pressure [hPa]
+      Numeric pvap       = abs_p[i] * vmr[i];
+      // dry air partial pressure [hPa]
+      Numeric pda        = abs_p[i] - pvap;
+
+      // inverse relative temperature [1]
+      Numeric ti         = (300.0 / abs_t[i]);
+
+      // continuum term [Np/m/Hz2]
+      Numeric con = CC * pvap_dummy * pow(ti, (Numeric)3.0) *
+         ( (5.89e-35 * pow(ti, (Numeric)0.91) * pda) + (1.833e-33 * pvap * pow(ti, (Numeric)5.24)) );
+
+      // Loop over input frequency
+      for ( Index s=0; s<n_f; ++s )
+  {
+    // input frequency in [GHz]
+    pxsec(s,i)  += con * f_grid[s] * f_grid[s];
+  }
+    }
+  return;
+}
+void NewmanH2OAbsModel (MatrixView        pxsec,
+			const Numeric   CCin,       // continuum scale factor
+			const Numeric   CLin,       // line strength scale factor
+			const Numeric   CWin,       // line broadening scale factor
+			const String&     model,     // model
+			ConstVectorView   f_grid,
+			ConstVectorView   abs_p,
+			ConstVectorView   abs_t,
+			ConstVectorView   vmr,
+			const Verbosity& verbosity)
+{
+  CREATE_OUT3;
+  
+  //
+  // Coefficients are from Liebe, Int. J. Infrared and Millimeter Waves, 10(6), 1989, 631
+  // Modified at 22 and 183GHz to be consistent with RTTOV v11.3
+  //         0           1        2       3        4      5      6
+  //         f0          b1       b2      b3       b4     b5     b6
+  //        [GHz]     [kHz/kPa]   [1]   [MHz/kPa]  [1]    [1]    [1]
+  const Numeric mpm89[30][7] = {
+    {    22.235080,    0.1090,  2.143,   26.56,   0.69,  4.80,  1.00},
+    {    67.813960,    0.0011,  8.735,   28.58,   0.69,  4.93,  0.82},
+    {   119.995940,    0.0007,  8.356,   29.48,   0.70,  4.78,  0.79},
+    {   183.310074,    2.3000,  0.668,   29.19,   0.77,  5.11,  0.85},
+    {   321.225644,    0.0464,  6.181,   23.03,   0.67,  4.69,  0.54},
+    {   325.152919,    1.5400,  1.540,   27.83,   0.68,  4.85,  0.74},
+    {   336.187000,    0.0010,  9.829,   26.93,   0.69,  4.74,  0.61},
+    {   380.197372,   11.9000,  1.048,   28.73,   0.69,  5.38,  0.84},
+    {   390.134508,    0.0044,  7.350,   21.52,   0.63,  4.81,  0.55},
+    {   437.346667,    0.0637,  5.050,   18.45,   0.60,  4.23,  0.48},
+    {   439.150812,    0.9210,  3.596,   21.00,   0.63,  4.29,  0.52},
+    {   443.018295,    0.1940,  5.050,   18.60,   0.60,  4.23,  0.50},
+    {   448.001075,   10.6000,  1.405,   26.32,   0.66,  4.84,  0.67},
+    {   470.888947,    0.3300,  3.599,   21.52,   0.66,  4.57,  0.65},
+    {   474.689127,    1.2800,  2.381,   23.55,   0.65,  4.65,  0.64},
+    {   488.491133,    0.2530,  2.853,   26.02,   0.69,  5.04,  0.72},
+    {   503.568532,    0.0374,  6.733,   16.12,   0.61,  3.98,  0.43},
+    {   504.482692,    0.0125,  6.733,   16.12,   0.61,  4.01,  0.45},
+    {   556.936002,  510.0000,  0.159,   32.10,   0.69,  4.11,  1.00},
+    {   620.700807,    5.0900,  2.200,   24.38,   0.71,  4.68,  0.68},
+    {   658.006500,    0.2740,  7.820,   32.10,   0.69,  4.14,  1.00},
+    {   752.033227,  250.0000,  0.396,   30.60,   0.68,  4.09,  0.84},
+    {   841.073593,    0.0130,  8.180,   15.90,   0.33,  5.76,  0.45},
+    {   859.865000,    0.1330,  7.989,   30.60,   0.68,  4.09,  0.84},
+    {   899.407000,    0.0550,  7.917,   29.85,   0.68,  4.53,  0.90},
+    {   902.555000,    0.0380,  8.432,   28.65,   0.70,  5.10,  0.95},
+    {   906.205524,    0.1830,  5.111,   24.08,   0.70,  4.70,  0.53},
+    {   916.171582,    8.5600,  1.442,   26.70,   0.70,  4.78,  0.78},
+    {   970.315022,    9.1600,  1.920,   25.50,   0.64,  4.94,  0.67},
+    {   987.926764,  138.0000,  0.258,   29.85,   0.68,  4.55,  0.90}};
+
+  // --------- STANDARD MODEL PARAMETERS ---------------------------------------------------
+  // standard values for the MPM89 model
+  // (Liebe, Int. J. Infrared and Millimeter Waves, 10(6), 1989, 631):
+  const Numeric CC_NEWMAN = 1.00000;
+  const Numeric CL_NEWMAN = 1.00000;
+  const Numeric CW_NEWMAN = 1.00000;
+  // ---------------------------------------------------------------------------------------
+
+
+  // select the parameter set (!!model goes for values!!):
+  Numeric CC, CL, CW;
+  if ( model == "Newman" )
+    {
+      CC = CC_NEWMAN;
+      CL = CL_NEWMAN;
+      CW = CW_NEWMAN;
+    }
+  else if ( model == "NewmanLines" )
+    {
+      CC = 0.000;
+      CL = CL_NEWMAN;
+      CW = CW_NEWMAN;
+    }
+  else if ( model == "NewmanContinuum" )
+    {
+      CC = CC_NEWMAN;
+      CL = 0.000;
+      CW = 0.000;
+    }
+  else if ( model == "user" )
+    {
+      CC = CCin;
+      CL = CLin;
+      CW = CWin;
+    }
+  else
+    {
+      ostringstream os;
+      os << "H2O-Newman: ERROR! Wrong model values given.\n"
+   << "Valid models are: 'Newman', 'NewmanLines', 'NewmanContinuum', and 'user'" << '\n';
+      throw runtime_error(os.str());
+    }
+  out3  << "H2O-Newman: (model=" << model << ") parameter values in use:\n"
+  << " CC = " << CC << "\n"
+  << " CL = " << CL << "\n"
+  << " CW = " << CW << "\n";
+
+
+  // number of lines of Liebe line catalog (30 lines)
+  const Index i_first = 0;
+  const Index i_last  = 29;
+
+  const Index n_p = abs_p.nelem();  // Number of pressure levels
+  const Index n_f = f_grid.nelem();  // Number of frequencies
+
+  // Check that dimensions of abs_p, abs_t, and vmr agree:
+  assert ( n_p==abs_t.nelem() );
+  assert ( n_p==vmr.nelem()   );
+
+  // Check that dimensions of pxsec are consistent with n_f
+  // and n_p. It should be [n_f,n_p]:
+  assert ( n_f==pxsec.nrows() );
+  assert ( n_p==pxsec.ncols() );
+
+  // Loop pressure/temperature (pressure in [hPa] therefore the factor 0.01)
+  for ( Index i=0; i<n_p; ++i )
+    {
+      // here the total pressure is not multiplied by the H2O vmr for the
+      // P_H2O calculation because we calculate pxsec and not abs: abs = vmr * pxsec
+      Numeric pwv_dummy = Pa_to_kPa * abs_p[i];
+      // relative inverse temperature [1]
+      Numeric theta     = (300.0 / abs_t[i]);
+      // H2O partial pressure [kPa]
+      Numeric pwv       = Pa_to_kPa * abs_p[i] * vmr[i];
+      // dry air partial pressure [kPa]
+      Numeric pda       = (Pa_to_kPa * abs_p[i]) - pwv;
+      // H2O continuum absorption [Np/m / GHz2]
+      Numeric con      = CC * pwv_dummy * pow(theta, (Numeric)3.0) * 1.000e24
+        * ( 5.233e-35 * pda * pow(theta, (Numeric)0.93) + 
+	  ( 1.801e-33 * pwv * pow(theta, (Numeric)5.31)) );
+
+      // Loop over input frequency
+      for ( Index s=0; s<n_f; ++s )
+  {
+    // input frequency in [GHz]
+    Numeric ff    = f_grid[s] * Hz_to_GHz;
+    // H2O line contribution at position f
+    Numeric Nppl  = 0.000;
+
+    // Loop over MPM89 spectral lines:
+    for ( Index l = i_first; l <= i_last; ++l )
+      {
+        // line strength [kHz]
+        Numeric strength = CL * pwv_dummy * mpm89[l][1]
+                * pow(theta, (Numeric)3.5) * exp(mpm89[l][2]*(1.000-theta));
+        // line broadening parameter [GHz]
+        Numeric gam      = CW * mpm89[l][3] * 0.001
+                * ( mpm89[l][5] * pwv * pow(theta, mpm89[l][6]) +
+                          pda * pow(theta, mpm89[l][4]) );
+        // Doppler line width [GHz]
+        // Numeric gamd     = 1.46e-6 * mpm89[l][0] / sqrt(theta);
+        // effective line width [GHz]
+        // gam              = 0.535 * gam + sqrt(0.217*gam*gam + gamd*gamd);
+        // H2O line absorption [dB/km/GHz] like in the original MPM89
+        Nppl            += strength * MPMLineShapeFunction(gam, mpm89[l][0], ff);
+      }
+    // pxsec = abs/vmr [1/m] but MPM89 is in [dB/km] --> conversion necessary for lines
+    pxsec(s,i) += dB_km_to_1_m * 0.1820 * ff * Nppl + con * ff * ff;
+  }
+    }
+  return;
+}
+//
+// #################################################################################
 //
 //! CP98H2OAbsModel
 /*!
@@ -16371,6 +16680,8 @@ void xsec_continuum_tag(MatrixView xsec,
      *CONTAGMODINFO*   H2O-MPM89:               MPM89, MPM89Lines, MPM89Continuum, user
      *CONTAGMODINFO*   H2O-MPM93:               MPM93, MPM93Lines, MPM93Continuum, user
      *CONTAGMODINFO*   H2O-PWR98:               Rosenkranz, RosenkranzLines, RosenkranzContinuum, user
+     *CONTAGMODINFO*   H2O-Kosh11:              Koshelev, KoshelevLines, KoshelevContinuum, user
+     *CONTAGMODINFO*   H2O-Newman:              Newman, NewmanLines, NewmanContinuum, user
      *CONTAGMODINFO*   H2O-CP98:                CruzPol, CruzPolLine, CruzPolContinuum, user
      *CONTAGMODINFO*   H2O-CKD24:               CKD24, user
      *CONTAGMODINFO*   O2-MPM85:                MPM85, MPM85Lines, MPM85Continuum, MPM85NoCoupling, MPM85NoCutoff, user
@@ -17646,7 +17957,223 @@ void xsec_continuum_tag(MatrixView xsec,
       throw runtime_error(os.str());
     }
   }
-  // ============= O2 continuum =========================================================
+  // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+  else if ( "H2O-Kosh11" == name )
+    {
+      // specific continuum parameters and units:
+      //  OUTPUT
+      //     pxsec          : [1/m],
+      //  INPUT
+      //     parameters[0] : continuum scale factor       (CC) [1]
+      //     parameters[1] : line strength scale factor   (CL) [1]
+      //     parameters[2] : line broadening scale factor (CW) [1]
+      //     f_grid        : [Hz]
+      //     abs_p         : [Pa]
+      //     abs_t         : [K]
+      //     vmr           : [1]
+      //
+      const int Nparam = 3;
+      if ( (model == "user") && (parameters.nelem() == Nparam) ) // -------------------------
+        {
+          out3 << "Full model " << name << " is running with \n"
+               << "user defined parameters according to model " << model << ".\n";
+          Kosh11H2OAbsModel( pxsec,
+			     parameters[0],
+			     parameters[1],
+			     parameters[2],
+			     model,
+			     f_grid,
+			     abs_p,
+			     abs_t,
+			     vmr,
+			     verbosity );
+        }
+      else if ( (model == "user") && (parameters.nelem() != Nparam) ) // --------------------
+        {
+          ostringstream os;
+          os << "Full model " << name << " requires " << Nparam << " input\n"
+             << "parameters for the model " << model << ",\n"
+             << "but you specified " << parameters.nelem() << " parameters.\n";
+          throw runtime_error(os.str());
+        }
+      else if ( (model != "user") && (parameters.nelem() == 0) ) // --------------------
+        {
+          out3 << "Full model " << name << " running with \n"
+               << "the parameters for model " << model << ".\n";
+          Kosh11H2OAbsModel( pxsec,
+			     0.00,
+			     0.00,
+			     0.00,
+			     model,
+			     f_grid,
+			     abs_p,
+			     abs_t,
+			     vmr,
+			     verbosity );
+        }
+      else if ( (model != "user") && (parameters.nelem() != 0) ) // --------------------
+        {
+          ostringstream os;
+          os << "ERROR: Full model " << name << " requires NO input\n"
+             << "parameters for the model " << model << ",\n"
+             << "but you specified " << parameters.nelem() << " parameters.\n"
+             << "This ambiguity can not be solved by arts.\n"
+             << "Please see the arts user guide chapter 3.\n";
+          throw runtime_error(os.str());
+        }
+    }
+  else if ( "H2O-Newman" == name )
+    {
+      // specific continuum parameters and units:
+      //  OUTPUT
+      //     pxsec          : [1/m],
+      //  INPUT
+      //     parameters[0] : continuum scale factor       (CC) [1]
+      //     parameters[1] : line strength scale factor   (CL) [1]
+      //     parameters[2] : line broadening scale factor (CW) [1]
+      //     f_grid        : [Hz]
+      //     abs_p         : [Pa]
+      //     abs_t         : [K]
+      //     vmr           : [1]
+      //
+      const int Nparam = 3;
+      if ( (model == "user") && (parameters.nelem() == Nparam) ) // -------------------------
+        {
+          out3 << "Full model " << name << " is running with \n"
+               << "user defined parameters according to model " << model << ".\n";
+          NewmanH2OAbsModel( pxsec,
+			     parameters[0],
+			     parameters[1],
+			     parameters[2],
+			     model,
+			     f_grid,
+			     abs_p,
+			     abs_t,
+			     vmr,
+			     verbosity );
+        }
+      else if ( (model == "user") && (parameters.nelem() != Nparam) ) // --------------------
+        {
+          ostringstream os;
+          os << "Full model " << name << " requires " << Nparam << " input\n"
+             << "parameters for the model " << model << ",\n"
+             << "but you specified " << parameters.nelem() << " parameters.\n";
+          throw runtime_error(os.str());
+        }
+      else if ( (model != "user") && (parameters.nelem() == 0) ) // --------------------
+        {
+          out3 << "Full model " << name << " running with \n"
+               << "the parameters for model " << model << ".\n";
+          NewmanH2OAbsModel( pxsec,
+			     0.00,
+			     0.00,
+			     0.00,
+			     model,
+			     f_grid,
+			     abs_p,
+			     abs_t,
+			     vmr,
+			     verbosity );
+        }
+      else if ( (model != "user") && (parameters.nelem() != 0) ) // --------------------
+        {
+          ostringstream os;
+          os << "ERROR: Full model " << name << " requires NO input\n"
+             << "parameters for the model " << model << ",\n"
+             << "but you specified " << parameters.nelem() << " parameters.\n"
+             << "This ambiguity can not be solved by arts.\n"
+             << "Please see the arts user guide chapter 3.\n";
+          throw runtime_error(os.str());
+        }
+    }
+  else if ( "H2O-RTTOVv113" == name )
+    {
+      // Combine modified MPM89 lines from Newman model with
+      // original MPM89 continuum as in RTTOV v11.3
+
+      // specific continuum parameters and units:
+      //  OUTPUT
+      //     pxsec          : [1/m],
+      //  INPUT
+      //     parameters[0] : continuum scale factor       (CC) [1]
+      //     parameters[1] : line strength scale factor   (CL) [1]
+      //     parameters[2] : line broadening scale factor (CW) [1]
+      //     f_grid        : [Hz]
+      //     abs_p         : [Pa]
+      //     abs_t         : [K]
+      //     vmr           : [1]
+      //
+      const int Nparam = 3;
+      if ( (model == "user") && (parameters.nelem() == Nparam) ) // -------------------------
+        {
+          out3 << "Full model " << name << " is running with \n"
+               << "user defined parameters according to model " << model << ".\n";
+          NewmanH2OAbsModel( pxsec,
+			     0.0,
+			     parameters[1],
+			     parameters[2],
+			     model,
+			     f_grid,
+			     abs_p,
+			     abs_t,
+			     vmr,
+			     verbosity );
+	  MPM89H2OAbsModel ( pxsec,
+                             parameters[0],
+			     0.0,
+			     0.0,
+			     model,
+			     f_grid,
+			     abs_p,
+			     abs_t,
+			     vmr,
+			     verbosity );
+        }
+      else if ( (model == "user") && (parameters.nelem() != Nparam) ) // --------------------
+        {
+          ostringstream os;
+          os << "Full model " << name << " requires " << Nparam << " input\n"
+             << "parameters for the model " << model << ",\n"
+             << "but you specified " << parameters.nelem() << " parameters.\n";
+          throw runtime_error(os.str());
+        }
+      else if ( (model != "user") && (parameters.nelem() == 0) ) // --------------------
+        {
+          out3 << "Full model " << name << " running with \n"
+               << "the parameters for model " << model << ".\n";
+          NewmanH2OAbsModel( pxsec,
+			     0.00,
+			     0.00,
+			     0.00,
+			     (String) "NewmanLines",
+			     f_grid,
+			     abs_p,
+			     abs_t,
+			     vmr,
+			     verbosity );
+	  MPM89H2OAbsModel (pxsec,
+			    0.00,
+			    0.00,
+			    0.00,
+			    (String) "MPM89Continuum",
+			    f_grid,
+			    abs_p,
+			    abs_t,
+			    vmr,
+			    verbosity );
+        }
+      else if ( (model != "user") && (parameters.nelem() != 0) ) // --------------------
+        {
+          ostringstream os;
+          os << "ERROR: Full model " << name << " requires NO input\n"
+             << "parameters for the model " << model << ",\n"
+             << "but you specified " << parameters.nelem() << " parameters.\n"
+             << "This ambiguity can not be solved by arts.\n"
+             << "Please see the arts user guide chapter 3.\n";
+          throw runtime_error(os.str());
+        }
+    }
+// ============= O2 continuum =========================================================
   else if ("O2-CIAfunCKDMT100" == name) {
     // Model reference:
     // F. Thibault, V. Menoux, R. Le Doucen, L. Rosenman,

@@ -347,6 +347,21 @@ void define_partition_species_data() {
       Qcoeff(0, 0, 0, 0),
       Qcoeff(150.0, 300.0),
       IsotopologueRecord::PF_FROMCOEFF);
+  iso(it_isotopologue,
+      "Kosh11",
+      Qcoeff(0, 0, 0, 0),
+      Qcoeff(150.0, 300.0),
+      IsotopologueRecord::PF_FROMCOEFF);
+  iso(it_isotopologue,
+      "Newman",
+      Qcoeff(0, 0, 0, 0),
+      Qcoeff(150.0, 300.0),
+      IsotopologueRecord::PF_FROMCOEFF);
+  iso(it_isotopologue,
+      "RTTOVv113",
+      Qcoeff(0, 0, 0, 0),
+      Qcoeff(150.0, 300.0),
+      IsotopologueRecord::PF_FROMCOEFF);
 
   // CO2
   // Coeff: 1 1 1 1 1 1 1 1 1 1 1

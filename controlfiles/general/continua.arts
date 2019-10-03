@@ -36,6 +36,23 @@ abs_cont_descriptionAppend( tagname="H2O-MPM89",
 abs_cont_descriptionAppend( tagname="H2O-MPM87",
                             model="MPM87" )
 
+# Koshelev 2011 H2O full absorption model
+# (lines are from PWR98) 
+abs_cont_descriptionAppend( tagname="H2O-Kosh11",
+			    model="Koshelev")
+
+# Newman H2O full absorption model
+# (lines are from MPM89 with modifications to be consistent 
+# with RTTOV v11.3. Continuum is Kosh11 but re-fitted for
+# modified MPM89 lines) 
+abs_cont_descriptionAppend( tagname="H2O-Newman",
+			    model="Newman")
+
+# RTTOV v11.3 H2O absorption model
+# (modified lines as for Newman model, MPM89 continuum)
+abs_cont_descriptionAppend( tagname="H2O-RTTOVv113",
+			    model="RTTOVv113")
+
 # Ma Tipping Continuum model
 abs_cont_descriptionAppend( tagname="H2O-ForeignContMaTippingType",
                             model="MaTipping" )

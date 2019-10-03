@@ -107,6 +107,28 @@ void PWR98H2OAbsModel(MatrixView xsec,         // calculated x-section
                       ConstVectorView vmr,     // H2O vmr profile
                       const Verbosity& verbosity);
 
+void Kosh11H2OAbsModel(MatrixView        xsec,       // calculated x-section
+		       const Numeric     CCin,       // continuum scale factor 
+		       const Numeric     CLin,       // line strength scale facor
+		       const Numeric     CWin,       // line broadening scale factor
+		       const String&     model,      // model option
+		       ConstVectorView   f_grid,     // frequency vector
+		       ConstVectorView   abs_p,      // pressure vector
+		       ConstVectorView   abs_t,      // temperature vector
+		       ConstVectorView   vmr,        // H2O vmr profile
+		       const Verbosity& verbosity);
+
+void NewmanH2OAbsModel(MatrixView        xsec,       // calculated x-section
+		       const Numeric     CCin,       // continuum scale factor 
+		       const Numeric     CLin,       // line strength scale factor
+		       const Numeric     CWin,       // line broadening scale factor
+		       const String&     model,      // model option
+		       ConstVectorView   f_grid,     // frequency vector
+		       ConstVectorView   abs_p,      // pressure vector
+		       ConstVectorView   abs_t,      // temperature vector
+		       ConstVectorView   vmr,        // H2O vmr profile
+		       const Verbosity& verbosity);
+
 void CP98H2OAbsModel(MatrixView xsec,         // calculated x-section
                      const Numeric CCin,      // continuum scale factor
                      const Numeric CLin,      // line strength scale factor

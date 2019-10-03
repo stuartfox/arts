@@ -235,7 +235,10 @@ void define_basic_species_data() {
           REC("MPM87", NAN, NAN, -1, -1, TAGS()),
           REC("MPM89", NAN, NAN, -1, -1, TAGS()),
           REC("MPM93", NAN, NAN, -1, -1, TAGS()),
-          REC("PWR98", NAN, NAN, -1, -1, TAGS()))));
+          REC("PWR98", NAN, NAN, -1, -1, TAGS()),
+          REC("Kosh11", NAN, NAN, -1, -1, TAGS()),
+          REC("Newman", NAN, NAN, -1, -1, TAGS()),
+          REC("RTTOVv113", NAN, NAN, -1, -1, TAGS()))));
 
   // CO2
   // (missing mainly in JPL, latest version (7/00) includes some isotopologues)
