@@ -7,6 +7,7 @@
  */
 
 #include "jacobian.h"
+
 #include "arts.h"
 #include "arts_constants.h"
 #include "auto_md.h"
@@ -17,8 +18,8 @@
 #include "rte.h"
 #include "special_interp.h"
 
-inline constexpr Numeric NAT_LOG_TEN=Constant::ln_10;
-inline constexpr Numeric PI=Constant::pi;
+inline constexpr Numeric NAT_LOG_TEN = Constant::ln_10;
+inline constexpr Numeric PI = Constant::pi;
 
 ostream& operator<<(ostream& os, const RetrievalQuantity& ot) {
   return os << "\n       Target   = " << ot.Target()
@@ -75,45 +76,14 @@ void transform_jacobian(Matrix& jacobian,
                         const Vector x,
                         const ArrayOfRetrievalQuantity& jqs) {
   // Range indices without affine trans
-  ArrayOfArrayOfIndex jis;
+  ArrayOfArrayOfIndex jis, jis_t;
   bool any_affine;
   //
   jac_ranges_indices(jis, any_affine, jqs, true);
-
-  Vector x_t(x);
-  transform_x_back(x_t, jqs, false);
-
-  // Apply functional transformations
-  for (Index i = 0; i < jqs.nelem(); ++i) {
-    const RetrievalQuantity& jq = jqs[i];
-    const String tfun = jq.TransformationFunc();
-    // Remember to add new functions also to transform_jacobian and transform_x_back
-    if (tfun == "") {
-      // Nothing to do
-    } else if (tfun == "log") {
-      for (Index c = jis[i][0]; c <= jis[i][1]; ++c) {
-        jacobian(joker, c) *= exp(x_t[c]);
-      }
-    } else if (tfun == "log10") {
-      for (Index c = jis[i][0]; c <= jis[i][1]; ++c) {
-        jacobian(joker, c) *= NAT_LOG_TEN * pow(10.0, x_t[c]);
-      }
-    } else if (tfun == "atanh") {
-      const Vector& pars = jq.TFuncParameters();
-      for (Index c = jis[i][0]; c <= jis[i][1]; ++c) {
-        jacobian(joker, c) *=
-            2 * (pars[1] - pars[0]) / pow(exp(-x_t[c]) + exp(x_t[c]), 2.0);
-      }
-    } else {
-      ARTS_ASSERT(0);
-    }
-  }
+  jac_ranges_indices(jis_t, any_affine, jqs);
 
   // Apply affine transformations
   if (any_affine) {
-    ArrayOfArrayOfIndex jis_t;
-    jac_ranges_indices(jis_t, any_affine, jqs);
-
     Matrix jacobian_t(jacobian.nrows(), jis_t.back()[1] + 1);
 
     for (Index i = 0; i < jqs.nelem(); ++i) {
@@ -134,15 +104,6 @@ void transform_jacobian(Matrix& jacobian,
     }
     swap(jacobian_t, jacobian);
   }
-}
-
-void transform_x(Vector& x, const ArrayOfRetrievalQuantity& jqs) {
-  // Range indices without affine trans
-  ArrayOfArrayOfIndex jis;
-  bool any_affine;
-  //
-  jac_ranges_indices(jis, any_affine, jqs, true);
-
   // Apply functional transformations
   for (Index i = 0; i < jqs.nelem(); ++i) {
     const RetrievalQuantity& jq = jqs[i];
@@ -151,46 +112,35 @@ void transform_x(Vector& x, const ArrayOfRetrievalQuantity& jqs) {
     if (tfun == "") {
       // Nothing to do
     } else if (tfun == "log") {
-      const Vector& pars = jq.TFuncParameters();
-      for (Index r = jis[i][0]; r <= jis[i][1]; ++r) {
-        ARTS_USER_ERROR_IF (x[r] <= pars[0],
-            "log-transformation selected for retrieval quantity with\n"
-            "index ", i, " (0-based), but at least one value <= z_min\n"
-            "found for this quantity. This is not allowed.")
-        x[r] = log(x[r] - pars[0]);
+      for (Index c = jis_t[i][0]; c <= jis_t[i][1]; ++c) {
+        jacobian(joker, c) *= exp(x[c]);
       }
     } else if (tfun == "log10") {
-      const Vector& pars = jq.TFuncParameters();
-      for (Index r = jis[i][0]; r <= jis[i][1]; ++r) {
-        ARTS_USER_ERROR_IF (x[r] <= 0,
-            "log10-transformation selected for retrieval quantity with\n"
-            "index ", i, " (0-based), but at least one value <= z_min\n"
-            "found for this quantity. This is not allowed.")
-        x[r] = log10(x[r] - pars[0]);
+      for (Index c = jis_t[i][0]; c <= jis_t[i][1]; ++c) {
+        jacobian(joker, c) *= NAT_LOG_TEN * pow(10.0, x[c]);
       }
     } else if (tfun == "atanh") {
       const Vector& pars = jq.TFuncParameters();
-      for (Index r = jis[i][0]; r <= jis[i][1]; ++r) {
-        ARTS_USER_ERROR_IF (x[r] <= pars[0],
-            "atanh-transformation selected for retrieval quantity with\n"
-            "index ", i, " (0-based), but at least one value <= z_min\n"
-            "found for this quantity. This is not allowed.")
-        ARTS_USER_ERROR_IF (x[r] >= pars[1],
-            "atanh-transformation selected for retrieval quantity with\n"
-            "index ", i, " (0-based), but at least one value is\n"
-            ">= z_max. This is not allowed.")
-        x[r] = atanh(2 * (x[r] - pars[0]) / (pars[1] - pars[0]) - 1);
+      for (Index c = jis_t[i][0]; c <= jis_t[i][1]; ++c) {
+        jacobian(joker, c) *=
+            2 * (pars[1] - pars[0]) / pow(exp(-x[c]) + exp(x[c]), 2.0);
       }
     } else {
       ARTS_ASSERT(0);
     }
   }
+}
+
+void transform_x(Vector& x, const ArrayOfRetrievalQuantity& jqs) {
+  // Range indices without affine trans
+  ArrayOfArrayOfIndex jis, jis_t;
+  bool any_affine;
+  //
+  jac_ranges_indices(jis, any_affine, jqs, true);
+  jac_ranges_indices(jis_t, any_affine, jqs);
 
   // Apply affine transformations
   if (any_affine) {
-    ArrayOfArrayOfIndex jis_t;
-    jac_ranges_indices(jis_t, any_affine, jqs);
-
     Vector x_t(jis_t.back()[1] + 1);
 
     for (Index i = 0; i < jqs.nelem(); ++i) {
@@ -211,23 +161,105 @@ void transform_x(Vector& x, const ArrayOfRetrievalQuantity& jqs) {
     }
     swap(x, x_t);
   }
+
+  // Apply functional transformations
+  for (Index i = 0; i < jqs.nelem(); ++i) {
+    const RetrievalQuantity& jq = jqs[i];
+    const String tfun = jq.TransformationFunc();
+    // Remember to add new functions also to transform_jacobian and transform_x_back
+    if (tfun == "") {
+      // Nothing to do
+    } else if (tfun == "log") {
+      const Vector& pars = jq.TFuncParameters();
+      for (Index r = jis_t[i][0]; r <= jis_t[i][1]; ++r) {
+        ARTS_USER_ERROR_IF(
+            x[r] <= pars[0],
+            "log-transformation selected for retrieval quantity with\n"
+            "index ",
+            i,
+            " (0-based), but at least one value <= z_min\n"
+            "found for this quantity. This is not allowed.")
+        x[r] = log(x[r] - pars[0]);
+      }
+    } else if (tfun == "log10") {
+      const Vector& pars = jq.TFuncParameters();
+      for (Index r = jis_t[i][0]; r <= jis_t[i][1]; ++r) {
+        ARTS_USER_ERROR_IF(
+            x[r] <= 0,
+            "log10-transformation selected for retrieval quantity with\n"
+            "index ",
+            i,
+            " (0-based), but at least one value <= z_min\n"
+            "found for this quantity. This is not allowed.")
+        x[r] = log10(x[r] - pars[0]);
+      }
+    } else if (tfun == "atanh") {
+      const Vector& pars = jq.TFuncParameters();
+      for (Index r = jis_t[i][0]; r <= jis_t[i][1]; ++r) {
+        ARTS_USER_ERROR_IF(
+            x[r] <= pars[0],
+            "atanh-transformation selected for retrieval quantity with\n"
+            "index ",
+            i,
+            " (0-based), but at least one value <= z_min\n"
+            "found for this quantity. This is not allowed.")
+        ARTS_USER_ERROR_IF(
+            x[r] >= pars[1],
+            "atanh-transformation selected for retrieval quantity with\n"
+            "index ",
+            i,
+            " (0-based), but at least one value is\n"
+            ">= z_max. This is not allowed.")
+        x[r] = atanh(2 * (x[r] - pars[0]) / (pars[1] - pars[0]) - 1);
+      }
+    } else {
+      ARTS_ASSERT(0);
+    }
+  }
 }
 
 void transform_x_back(Vector& x_t,
                       const ArrayOfRetrievalQuantity& jqs,
                       bool revert_functional_transforms) {
-  // Range indices without affine trans
-  ArrayOfArrayOfIndex jis;
+  // Range indices without and with affine trans
+  ArrayOfArrayOfIndex jis, jis_t;
   bool any_affine;
   //
   jac_ranges_indices(jis, any_affine, jqs, true);
+  jac_ranges_indices(jis_t, any_affine, jqs);
+
+  if (revert_functional_transforms) {
+    // Revert functional transformations
+    for (Index i = 0; i < jqs.nelem(); ++i) {
+      const RetrievalQuantity& jq = jqs[i];
+      const String tfun = jq.TransformationFunc();
+      // Remember to add new functions also to transform_jacobian and transform_x_back
+      if (tfun == "") {
+        // Nothing to do
+      } else if (tfun == "log") {
+        const Vector& pars = jq.TFuncParameters();
+        for (Index r = jis[i][0]; r <= jis[i][1]; ++r) {
+          x_t[r] = pars[0] + exp(x_t[r]);
+        }
+      } else if (tfun == "log10") {
+        const Vector& pars = jq.TFuncParameters();
+        for (Index r = jis_t[i][0]; r <= jis_t[i][1]; ++r) {
+          x_t[r] = pars[0] + pow(10.0, x_t[r]);
+        }
+      } else if (tfun == "atanh") {
+        const Vector& pars = jq.TFuncParameters();
+        for (Index r = jis_t[i][0]; r <= jis_t[i][1]; ++r) {
+          x_t[r] = pars[0] + ((pars[1] - pars[0]) / 2) * (1 + tanh(x_t[r]));
+        }
+      } else {
+        ARTS_ASSERT(0);
+      }
+    }
+  }
 
   // Revert affine transformations
   // Apply affine transformations
   if (any_affine) {
-    ArrayOfArrayOfIndex jis_t;
-    jac_ranges_indices(jis_t, any_affine, jqs);
-
     Vector x(jis.back()[1] + 1);
 
     for (Index i = 0; i < jqs.nelem(); ++i) {
@@ -246,35 +278,6 @@ void transform_x_back(Vector& x_t,
       }
     }
     swap(x_t, x);
-  }
-
-  if (revert_functional_transforms) {
-    // Revert functional transformations
-    for (Index i = 0; i < jqs.nelem(); ++i) {
-      const RetrievalQuantity& jq = jqs[i];
-      const String tfun = jq.TransformationFunc();
-      // Remember to add new functions also to transform_jacobian and transform_x_back
-      if (tfun == "") {
-        // Nothing to do
-      } else if (tfun == "log") {
-        const Vector& pars = jq.TFuncParameters();
-        for (Index r = jis[i][0]; r <= jis[i][1]; ++r) {
-          x_t[r] = pars[0] + exp(x_t[r]);
-        }
-      } else if (tfun == "log10") {
-        const Vector& pars = jq.TFuncParameters();
-        for (Index r = jis[i][0]; r <= jis[i][1]; ++r) {
-          x_t[r] = pars[0] + pow(10.0, x_t[r]);
-        }
-      } else if (tfun == "atanh") {
-        const Vector& pars = jq.TFuncParameters();
-        for (Index r = jis[i][0]; r <= jis[i][1]; ++r) {
-          x_t[r] = pars[0] + ((pars[1] - pars[0]) / 2) * (1 + tanh(x_t[r]));
-        }
-      } else {
-        ARTS_ASSERT(0);
-      }
-    }
   }
 }
 
@@ -299,7 +302,8 @@ void diy_from_path_to_rgrids(Tensor3View diy_dx,
                              const Index& atmosphere_dim,
                              const Ppath& ppath,
                              ConstVectorView ppath_p) {
-  ARTS_ASSERT(jacobian_quantity.Grids().nelem() == atmosphere_dim or jacobian_quantity.Grids().empty());
+  ARTS_ASSERT(jacobian_quantity.Grids().nelem() == atmosphere_dim or
+              jacobian_quantity.Grids().empty());
 
   // We want here an extrapolation to infinity ->
   //                                        extremly high extrapolation factor
@@ -308,7 +312,9 @@ void diy_from_path_to_rgrids(Tensor3View diy_dx,
   if (ppath.np > 1)  // Otherwise nothing to do here
   {
     // Pressure
-    Index nr1 = jacobian_quantity.Grids().empty() ? 0 : jacobian_quantity.Grids()[0].nelem();
+    Index nr1 = jacobian_quantity.Grids().empty()
+                    ? 0
+                    : jacobian_quantity.Grids()[0].nelem();
     ArrayOfGridPos gp_p(ppath.np);
     if (nr1 > 1) {
       p2gridpos(gp_p, jacobian_quantity.Grids()[0], ppath_p, extpolfac);
@@ -322,7 +328,9 @@ void diy_from_path_to_rgrids(Tensor3View diy_dx,
     ArrayOfGridPos gp_lat;
     if (atmosphere_dim > 1) {
       gp_lat.resize(ppath.np);
-      nr2 = jacobian_quantity.Grids().empty() ? 0 : jacobian_quantity.Grids()[1].nelem();
+      nr2 = jacobian_quantity.Grids().empty()
+                ? 0
+                : jacobian_quantity.Grids()[1].nelem();
       if (nr2 > 1) {
         gridpos(gp_lat,
                 jacobian_quantity.Grids()[1],
@@ -337,7 +345,9 @@ void diy_from_path_to_rgrids(Tensor3View diy_dx,
     // Longitude
     ArrayOfGridPos gp_lon;
     if (atmosphere_dim > 2) {
-      Index nr3 = jacobian_quantity.Grids().empty() ? 0 : jacobian_quantity.Grids()[2].nelem();
+      Index nr3 = jacobian_quantity.Grids().empty()
+                      ? 0
+                      : jacobian_quantity.Grids()[2].nelem();
       gp_lon.resize(ppath.np);
       if (nr3 > 1) {
         gridpos(gp_lon,
@@ -461,7 +471,7 @@ void diy_from_pos_to_rgrids(Tensor3View diy_dx,
                             const Index& atmosphere_dim,
                             ConstVectorView rtp_pos) {
   ARTS_ASSERT(jacobian_quantity.Grids().nelem() ==
-         max(atmosphere_dim - 1, Index(1)));
+              max(atmosphere_dim - 1, Index(1)));
   ARTS_ASSERT(rtp_pos.nelem() == atmosphere_dim);
 
   // We want here an extrapolation to infinity ->
@@ -545,75 +555,96 @@ void diy_from_pos_to_rgrids(Tensor3View diy_dx,
   }
 }
 
-ArrayOfIndex get_pointers_for_analytical_species(const ArrayOfRetrievalQuantity& jacobian_quantities,
-                                                 const ArrayOfArrayOfSpeciesTag& abs_species) {
+ArrayOfIndex get_pointers_for_analytical_species(
+    const ArrayOfRetrievalQuantity& jacobian_quantities,
+    const ArrayOfArrayOfSpeciesTag& abs_species) {
   ArrayOfIndex aoi(jacobian_quantities.nelem(), -1);
-  
+
   FOR_ANALYTICAL_JACOBIANS_DO(
-    if (jacobian_quantities[iq] == Jacobian::Line::VMR) {
-      auto p = std::find_if(abs_species.cbegin(), abs_species.cend(),
-                            [qid=jacobian_quantities[iq].QuantumIdentity()](auto& specs){
-                              return std::any_of(specs.cbegin(), specs.cend(),
-                                                 [qid](auto& spec){return qid.Isotopologue() == spec.Isotopologue();});
-                            });
-      if (p not_eq abs_species.cend()) {
-        aoi[iq] = Index(abs_species.cend() - p);
-      } else {
-        ARTS_USER_ERROR (
-                            "Could not find ",
-                            jacobian_quantities[iq].Subtag(),
-                            " in species of abs_species.\n")
-      }
-    } else if (jacobian_quantities[iq] == Jacobian::Special::ArrayOfSpeciesTagVMR) {
-      ArrayOfSpeciesTag atag(jacobian_quantities[iq].Subtag());
-      aoi[iq] = chk_contains("abs_species", abs_species, atag);
-    } else if (jacobian_quantities[iq] == Jacobian::Atm::Particulates) {
-      aoi[iq] = -9999;
-    } else if (jacobian_quantities[iq] == Jacobian::Atm::Electrons) {
-      aoi[iq] = -9999;
-    }
-  )
-  
+      if (jacobian_quantities[iq] == Jacobian::Line::VMR) {
+        auto p = std::find_if(
+            abs_species.cbegin(),
+            abs_species.cend(),
+            [qid = jacobian_quantities[iq].QuantumIdentity()](auto& specs) {
+              return std::any_of(
+                  specs.cbegin(), specs.cend(), [qid](auto& spec) {
+                    return qid.Isotopologue() == spec.Isotopologue();
+                  });
+            });
+        if (p not_eq abs_species.cend()) {
+          aoi[iq] = Index(abs_species.cend() - p);
+        } else {
+          ARTS_USER_ERROR("Could not find ",
+                          jacobian_quantities[iq].Subtag(),
+                          " in species of abs_species.\n")
+        }
+      } else if (jacobian_quantities[iq] ==
+                 Jacobian::Special::ArrayOfSpeciesTagVMR) {
+        ArrayOfSpeciesTag atag(jacobian_quantities[iq].Subtag());
+        aoi[iq] = chk_contains("abs_species", abs_species, atag);
+      } else if (jacobian_quantities[iq] == Jacobian::Atm::Particulates) {
+        aoi[iq] = -9999;
+      } else if (jacobian_quantities[iq] == Jacobian::Atm::Electrons) {
+        aoi[iq] = -9999;
+      })
+
   return aoi;
 }
 
-ArrayOfTensor3 get_standard_diy_dpath(const ArrayOfRetrievalQuantity& jacobian_quantities, Index np, Index nf, Index ns, bool active) {
+ArrayOfTensor3 get_standard_diy_dpath(
+    const ArrayOfRetrievalQuantity& jacobian_quantities,
+    Index np,
+    Index nf,
+    Index ns,
+    bool active) {
   ArrayOfTensor3 diy_dpath(jacobian_quantities.nelem());
-  
+
   const Index nn = active ? np * nf : nf;
   FOR_ANALYTICAL_JACOBIANS_DO(diy_dpath[iq] = Tensor3(np, nn, ns, 0.0);)
-  
+
   return diy_dpath;
 }
 
-ArrayOfTensor3 get_standard_starting_diy_dx(const ArrayOfRetrievalQuantity& jacobian_quantities, Index np, Index nf, Index ns, bool active) {
+ArrayOfTensor3 get_standard_starting_diy_dx(
+    const ArrayOfRetrievalQuantity& jacobian_quantities,
+    Index np,
+    Index nf,
+    Index ns,
+    bool active) {
   ArrayOfTensor3 diy_dx(jacobian_quantities.nelem());
-  
+
   bool any_affine;
   ArrayOfArrayOfIndex jacobian_indices;
   jac_ranges_indices(jacobian_indices, any_affine, jacobian_quantities, true);
-  
+
   const Index nn = active ? np * nf : nf;
-  FOR_ANALYTICAL_JACOBIANS_DO2(diy_dx[iq] = Tensor3(jacobian_indices[iq][1] - jacobian_indices[iq][0] + 1, nn, ns, 0.0);)
-  
+  FOR_ANALYTICAL_JACOBIANS_DO2(
+      diy_dx[iq] = Tensor3(
+          jacobian_indices[iq][1] - jacobian_indices[iq][0] + 1, nn, ns, 0.0);)
+
   return diy_dx;
 }
 
-ArrayOfIndex get_pointers_for_scat_species(const ArrayOfRetrievalQuantity& jacobian_quantities,
-                                           const ArrayOfString& scat_species,
-                                           const bool cloudbox_on) {
+ArrayOfIndex get_pointers_for_scat_species(
+    const ArrayOfRetrievalQuantity& jacobian_quantities,
+    const ArrayOfString& scat_species,
+    const bool cloudbox_on) {
   ArrayOfIndex aoi(jacobian_quantities.nelem(), -1);
-  
+
   FOR_ANALYTICAL_JACOBIANS_DO(
-    if (cloudbox_on and jacobian_quantities[iq] == Jacobian::Special::ScatteringString) {
-      aoi[iq] = find_first(scat_species, jacobian_quantities[iq].Subtag());
-      ARTS_USER_ERROR_IF (aoi[iq] < 0,
-          "Jacobian quantity with index ", iq, " refers to\n"
-          "  ", jacobian_quantities[iq].Subtag(),
-          "\nbut this species could not be found in *scat_species*.")
-    }
-  )
-  
+      if (cloudbox_on and
+          jacobian_quantities[iq] == Jacobian::Special::ScatteringString) {
+        aoi[iq] = find_first(scat_species, jacobian_quantities[iq].Subtag());
+        ARTS_USER_ERROR_IF(
+            aoi[iq] < 0,
+            "Jacobian quantity with index ",
+            iq,
+            " refers to\n"
+            "  ",
+            jacobian_quantities[iq].Subtag(),
+            "\nbut this species could not be found in *scat_species*.")
+      })
+
   return aoi;
 }
 
@@ -868,7 +899,7 @@ void calcBaselineFit(Vector& y_baseline,
   } else if (rq == Jacobian::Sensor::Sinefit) {
     is_sine_fit = true;
   } else {
-    ARTS_USER_ERROR (
+    ARTS_USER_ERROR(
         "Retrieval quantity is neither a polynomial or a sine "
         " baseline fit.");
   }
@@ -952,10 +983,11 @@ void vmrunitscf(Numeric& x,
     }
     x = 1 / (vmr * number_density(p, t));
   } else {
-    ARTS_USER_ERROR (
-      "Allowed options for gas species jacobians are "
-      "\"rel\", \"vmr\" and \"nd\".\nYou have selected: ",
-      unit, '\n')
+    ARTS_USER_ERROR(
+        "Allowed options for gas species jacobians are "
+        "\"rel\", \"vmr\" and \"nd\".\nYou have selected: ",
+        unit,
+        '\n')
   }
 }
 
@@ -971,10 +1003,11 @@ void dxdvmrscf(Numeric& x,
   } else if (unit == "nd") {
     x = 1 / number_density(p, t);
   } else {
-    ARTS_USER_ERROR (
-      "Allowed options for gas species jacobians are "
-      "\"rel\", \"vmr\" and \"nd\".\nYou have selected: ",
-      unit, '\n')
+    ARTS_USER_ERROR(
+        "Allowed options for gas species jacobians are "
+        "\"rel\", \"vmr\" and \"nd\".\nYou have selected: ",
+        unit,
+        '\n')
   }
 }
 
@@ -1070,33 +1103,59 @@ bool is_line_parameter(const RetrievalQuantity& t) noexcept {
 }
 
 bool supports_CIA(const ArrayOfRetrievalQuantity& js) {
-  return std::any_of(js.cbegin(), js.cend(), [](auto& j){return (j == Jacobian::Atm::Temperature or j == Jacobian::Special::ArrayOfSpeciesTagVMR or j == Jacobian::Line::VMR or is_frequency_parameter(j));});
+  return std::any_of(js.cbegin(), js.cend(), [](auto& j) {
+    return (j == Jacobian::Atm::Temperature or
+            j == Jacobian::Special::ArrayOfSpeciesTagVMR or
+            j == Jacobian::Line::VMR or is_frequency_parameter(j));
+  });
 }
 
 bool supports_hitran_xsec(const ArrayOfRetrievalQuantity& js) {
-  return std::any_of(js.cbegin(), js.cend(), [](auto& j){return (j == Jacobian::Atm::Temperature or j == Jacobian::Line::VMR or j == Jacobian::Special::ArrayOfSpeciesTagVMR or is_frequency_parameter(j));});
+  return std::any_of(js.cbegin(), js.cend(), [](auto& j) {
+    return (j == Jacobian::Atm::Temperature or j == Jacobian::Line::VMR or
+            j == Jacobian::Special::ArrayOfSpeciesTagVMR or
+            is_frequency_parameter(j));
+  });
 }
 
 bool supports_continuum(const ArrayOfRetrievalQuantity& js) {
-  ARTS_USER_ERROR_IF (std::any_of(js.cbegin(), js.cend(), [](auto& j){return is_line_parameter(j);}),
-    "Line specific parameters are not supported while using continuum tags.\nWe do not track what lines are in the continuum.\n")
-  return std::any_of(js.cbegin(), js.cend(), [](auto& j){return (j == Jacobian::Atm::Temperature or j == Jacobian::Special::ArrayOfSpeciesTagVMR or is_frequency_parameter(j));});
+  ARTS_USER_ERROR_IF(
+      std::any_of(
+          js.cbegin(), js.cend(), [](auto& j) { return is_line_parameter(j); }),
+      "Line specific parameters are not supported while using continuum tags.\nWe do not track what lines are in the continuum.\n")
+  return std::any_of(js.cbegin(), js.cend(), [](auto& j) {
+    return (j == Jacobian::Atm::Temperature or
+            j == Jacobian::Special::ArrayOfSpeciesTagVMR or
+            is_frequency_parameter(j));
+  });
 }
 
 bool supports_relaxation_matrix(const ArrayOfRetrievalQuantity& js) {
-  ARTS_USER_ERROR_IF (std::any_of(js.cbegin(), js.cend(), [](auto& j){return is_line_parameter(j);}),
-    "Line specific parameters are not supported while\n using the relaxation matrix line mixing routine.\n We do not yet track individual lines in the relaxation matrix calculations.\n")
-  return std::any_of(js.cbegin(), js.cend(), [](auto& j){return (j == Jacobian::Atm::Temperature or is_frequency_parameter(j));});
+  ARTS_USER_ERROR_IF(
+      std::any_of(
+          js.cbegin(), js.cend(), [](auto& j) { return is_line_parameter(j); }),
+      "Line specific parameters are not supported while\n using the relaxation matrix line mixing routine.\n We do not yet track individual lines in the relaxation matrix calculations.\n")
+  return std::any_of(js.cbegin(), js.cend(), [](auto& j) {
+    return (j == Jacobian::Atm::Temperature or is_frequency_parameter(j));
+  });
 }
 
 bool supports_lookup(const ArrayOfRetrievalQuantity& js) {
-  ARTS_USER_ERROR_IF (std::any_of(js.cbegin(), js.cend(), [](auto& j){return is_line_parameter(j);}),
-    "Line specific parameters are not supported while using Lookup table.\nWe do not track lines in the Lookup.\n")
-  return std::any_of(js.cbegin(), js.cend(), [](auto& j){return (j == Jacobian::Atm::Temperature or j == Jacobian::Special::ArrayOfSpeciesTagVMR or is_frequency_parameter(j));});
+  ARTS_USER_ERROR_IF(
+      std::any_of(
+          js.cbegin(), js.cend(), [](auto& j) { return is_line_parameter(j); }),
+      "Line specific parameters are not supported while using Lookup table.\nWe do not track lines in the Lookup.\n")
+  return std::any_of(js.cbegin(), js.cend(), [](auto& j) {
+    return (j == Jacobian::Atm::Temperature or
+            j == Jacobian::Special::ArrayOfSpeciesTagVMR or
+            is_frequency_parameter(j));
+  });
 }
 
 bool supports_propmat_clearsky(const ArrayOfRetrievalQuantity& js) {
-  return std::any_of(js.cbegin(), js.cend(), [](auto& j){return not (j == Jacobian::Type::Sensor);});
+  return std::any_of(js.cbegin(), js.cend(), [](auto& j) {
+    return not(j == Jacobian::Type::Sensor);
+  });
 }
 
 bool species_match(const RetrievalQuantity& rq, const ArrayOfSpeciesTag& ast) {
@@ -1115,7 +1174,8 @@ bool species_match(const RetrievalQuantity& rq, const ArrayOfSpeciesTag& ast) {
   return false;
 }
 
-bool species_match(const RetrievalQuantity& rq, const Species::Species species) {
+bool species_match(const RetrievalQuantity& rq,
+                   const Species::Species species) {
   if (rq == Jacobian::Line::VMR and rq.QuantumIdentity().Species() == species)
     return true;
   return false;
@@ -1124,65 +1184,80 @@ bool species_match(const RetrievalQuantity& rq, const Species::Species species) 
 bool species_iso_match(const RetrievalQuantity& rq,
                        const Species::IsotopeRecord& ir) {
   auto ir2 = rq.QuantumIdentity().Isotopologue();
-  if (ir.spec == ir2.spec and (ir.isotname == Species::Joker or ir.isotname == ir2.isotname))
+  if (ir.spec == ir2.spec and
+      (ir.isotname == Species::Joker or ir.isotname == ir2.isotname))
     return true;
   else
     return false;
 }
 
 bool do_temperature_jacobian(const ArrayOfRetrievalQuantity& js) noexcept {
-  return std::any_of(js.cbegin(), js.cend(), [](auto& j){return j == Jacobian::Atm::Temperature;});
+  return std::any_of(js.cbegin(), js.cend(), [](auto& j) {
+    return j == Jacobian::Atm::Temperature;
+  });
 }
 
 jacobianVMRcheck do_vmr_jacobian(const ArrayOfRetrievalQuantity& js,
                                  const QuantumIdentifier& line_qid) noexcept {
   auto p = std::find_if(js.cbegin(), js.cend(), [&line_qid](auto& j) {
-    return j == Jacobian::Line::VMR
-      and j.QuantumIdentity().Species()      == line_qid.Species()
-      and j.QuantumIdentity().Isotopologue() == line_qid.Isotopologue();}
-  );
+    return j == Jacobian::Line::VMR and
+           j.QuantumIdentity().Species() == line_qid.Species() and
+           j.QuantumIdentity().Isotopologue() == line_qid.Isotopologue();
+  });
   if (p not_eq js.cend())
-    return {true, p -> QuantumIdentity()};
+    return {true, p->QuantumIdentity()};
   else
     return {false, line_qid};
 }
 
 bool do_line_center_jacobian(const ArrayOfRetrievalQuantity& js) noexcept {
-  return std::any_of(js.cbegin(), js.cend(), [](auto& j){return j == Jacobian::Line::Center;});
+  return std::any_of(js.cbegin(), js.cend(), [](auto& j) {
+    return j == Jacobian::Line::Center;
+  });
 }
 
 bool do_wind_jacobian(const ArrayOfRetrievalQuantity& js) noexcept {
-  return std::any_of(js.cbegin(), js.cend(), [](auto& j){return is_wind_parameter(j);});
+  return std::any_of(
+      js.cbegin(), js.cend(), [](auto& j) { return is_wind_parameter(j); });
 }
 
 bool do_frequency_jacobian(const ArrayOfRetrievalQuantity& js) noexcept {
-  return std::any_of(js.cbegin(), js.cend(), [](auto& j){return is_frequency_parameter(j);});
+  return std::any_of(js.cbegin(), js.cend(), [](auto& j) {
+    return is_frequency_parameter(j);
+  });
 }
 
 bool do_magnetic_jacobian(const ArrayOfRetrievalQuantity& js) noexcept {
-  return std::any_of(js.cbegin(), js.cend(), [](auto& j){return j.is_mag();});
+  return std::any_of(
+      js.cbegin(), js.cend(), [](auto& j) { return j.is_mag(); });
 }
 
 Numeric temperature_perturbation(const ArrayOfRetrievalQuantity& js) noexcept {
-  auto p = std::find_if(js.cbegin(), js.cend(), [](auto& j){return j == Jacobian::Atm::Temperature;});
+  auto p = std::find_if(js.cbegin(), js.cend(), [](auto& j) {
+    return j == Jacobian::Atm::Temperature;
+  });
   if (p not_eq js.cend())
-    return p -> Target().perturbation;
+    return p->Target().perturbation;
   else
     return std::numeric_limits<Numeric>::quiet_NaN();
 }
 
 Numeric frequency_perturbation(const ArrayOfRetrievalQuantity& js) noexcept {
-  auto p = std::find_if(js.cbegin(), js.cend(), [](auto& j){return is_frequency_parameter(j);});
+  auto p = std::find_if(js.cbegin(), js.cend(), [](auto& j) {
+    return is_frequency_parameter(j);
+  });
   if (p not_eq js.cend())
-    return p -> Target().perturbation;
+    return p->Target().perturbation;
   else
     return std::numeric_limits<Numeric>::quiet_NaN();
 }
 
-Numeric magnetic_field_perturbation(const ArrayOfRetrievalQuantity& js) noexcept {
-  auto p = std::find_if(js.cbegin(), js.cend(), [](auto& j){return j.is_mag();});
+Numeric magnetic_field_perturbation(
+    const ArrayOfRetrievalQuantity& js) noexcept {
+  auto p =
+      std::find_if(js.cbegin(), js.cend(), [](auto& j) { return j.is_mag(); });
   if (p not_eq js.cend())
-    return p -> Target().perturbation;
+    return p->Target().perturbation;
   else
     return std::numeric_limits<Numeric>::quiet_NaN();
 }
