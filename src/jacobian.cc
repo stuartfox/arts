@@ -238,7 +238,7 @@ void transform_x_back(Vector& x_t,
         // Nothing to do
       } else if (tfun == "log") {
         const Vector& pars = jq.TFuncParameters();
-        for (Index r = jis[i][0]; r <= jis[i][1]; ++r) {
+        for (Index r = jis_t[i][0]; r <= jis_t[i][1]; ++r) {
           x_t[r] = pars[0] + exp(x_t[r]);
         }
       } else if (tfun == "log10") {
